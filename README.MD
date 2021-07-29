@@ -58,6 +58,7 @@
 > import lombok.Builder; 
 > import lombok.Data;import lombok.EqualsAndHashCode;
 > import lombok.experimental.Accessors;
+> import lombok.experimental.Tolerate;
 > 
 > @Data
 > @Builder
@@ -65,6 +66,10 @@
 > @TableName("tb_user")
 > @EqualsAndHashCode(callSuper = true)
 > public class TbUser extends Model<TbUser> {
+>     @Tolerate
+>     public TbUser() {
+>     }
+> 
 >     @TableId
 >     private Integer id;
 >     private String name;
@@ -112,5 +117,6 @@
 >     .select("(SELECT COUNT(1) FROM tb_role) AS roles")
 >     .listMap();
 > ```
+> `至于租户和逻辑删除，大家就自己摸索一下吧，有问题需要探讨的，大家可以私我邮箱：1501722899@qq.com`
 
 #### `最后，希望大家可以帮忙多提issue和建设性建议，也很欢迎大家一起升级，进行壮大`
