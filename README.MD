@@ -37,6 +37,15 @@
 
 >>如何使用
 > 1. 第一步，先下载代码，可以直接把代码集成到项目中去，也可以打包添加到项目依赖中（注意mybatis-plus版本需要在3.4.0以上，JDK版本需要在1.8以上）
+> - `大家也可以用我发布的包，目前发布的都是SNAPSHOT，暂时是1.0版本，有时间我会多测试修改并发布`
+> - 仓库地址：`http://nexus.sigment.cn/repository/maven-group-xgkeeper/`
+> - ```xml
+>   <dependency>
+>       <groupId>org.join.plus</groupId>
+>       <artifactId>mybatis-plus-join</artifactId>
+>       <version>1.0-SNAPSHOT</version>
+>   </dependency>
+> ```
 > 2. 打包：项目根目录中执行`mvn clean package`
 > 3. 第二步，实现`JoinConfig`的接口，否则将使用默认配置
 > 4. 第三步，Mapper接口需要先继承`JoinMapper`
