@@ -2,6 +2,7 @@ package org.join.plus.query;
 
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
+import cn.hutool.core.collection.CollUtil;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.SharedString;
 import com.baomidou.mybatisplus.core.conditions.query.Query;
@@ -239,6 +240,10 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         this.master = master;
         this.joinConfig = joinConfig;
         super.initNeed();
+        if (joinConfig != null) {
+            this.disableTenant = joinConfig.tenantClass() == null || StrUtil.isBlank(joinConfig.tenantColumn());
+            this.disableLogicDelete = !joinConfig.hasLogicDelete();
+        }
     }
 
     /**
@@ -260,6 +265,10 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         this.master = master;
         this.joinConfig = joinConfig;
         super.initNeed();
+        if (joinConfig != null) {
+            this.disableTenant = joinConfig.tenantClass() == null || StrUtil.isBlank(joinConfig.tenantColumn());
+            this.disableLogicDelete = !joinConfig.hasLogicDelete();
+        }
     }
 
     /**
@@ -469,7 +478,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
 
         if (!this.selectOthers.isEmpty()) {
             this.selectOthers.forEach((k, v) -> {
-                if (v == null) {
+                if (StrUtil.isBlank(v)) {
                     sqlSelect.append(k)
                             .append(StrUtil.COMMA);
                 } else {
@@ -531,7 +540,12 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
                 String columnStr = table.getAliasName()
                         .concat(StrUtil.DOT)
                         .concat(joinConfig.tenantColumn());
-                in(superClass == joinConfig.tenantClass() && !sql.contains(columnStr), columnStr, tenants);
+                boolean ten = superClass == joinConfig.tenantClass() && !sql.contains(columnStr);
+                if (tenants.size() == 1) {
+                    eq(ten, columnStr, tenants.get(0));
+                } else {
+                    in(ten, columnStr, tenants);
+                }
             }
 
             if (!disableLogicDelete) {
@@ -605,7 +619,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
                     if (this.selectOthers.containsKey(c)) {
                         log.warn("查询的字段[{}]已经存在了查询列表中", c);
                     } else {
-                        this.selectOthers.put(c, null);
+                        this.selectOthers.put(c, StrUtil.EMPTY);
                     }
                 });
 
@@ -1114,7 +1128,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> eq(SFunction<S, ?> column, Object val) {
-        return this.eq(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.eq(true, column, val);
     }
 
     /**
@@ -1140,7 +1154,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> eqIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.eq(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.eq(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1164,7 +1178,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> ne(SFunction<S, ?> column, Object val) {
-        return this.ne(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.ne(true, column, val);
     }
 
     /**
@@ -1190,7 +1204,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> neIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.ne(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.ne(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1214,7 +1228,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> gt(SFunction<S, ?> column, Object val) {
-        return this.gt(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.gt(true, column, val);
     }
 
     /**
@@ -1240,7 +1254,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> gtIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.gt(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.gt(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1264,7 +1278,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> ge(SFunction<S, ?> column, Object val) {
-        return this.ge(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.ge(true, column, val);
     }
 
     /**
@@ -1290,7 +1304,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> geIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.ge(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.ge(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1314,7 +1328,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> lt(SFunction<S, ?> column, Object val) {
-        return this.lt(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.lt(true, column, val);
     }
 
     /**
@@ -1340,7 +1354,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> ltIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.lt(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.lt(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1364,7 +1378,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> le(SFunction<S, ?> column, Object val) {
-        return this.le(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.le(true, column, val);
     }
 
     /**
@@ -1390,7 +1404,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> leIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.le(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.le(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1541,7 +1555,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notLike(SFunction<S, ?> column, Object val) {
-        return this.notLike(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.notLike(true, column, val);
     }
 
     /**
@@ -1567,7 +1581,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notLikeIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.notLike(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.notLike(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1591,7 +1605,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeLeft(SFunction<S, ?> column, Object val) {
-        return this.likeLeft(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.likeLeft(true, column, val);
     }
 
     /**
@@ -1617,7 +1631,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeLeftIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.likeLeft(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.likeLeft(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1641,7 +1655,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeRight(SFunction<S, ?> column, Object val) {
-        return this.likeRight(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.likeRight(true, column, val);
     }
 
     /**
@@ -1667,7 +1681,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeRightIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.likeRight(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.likeRight(ObjectUtils.isNotEmpty(val), column, val);
     }
 
     /**
@@ -1735,7 +1749,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> isNotNull(boolean cnd, SFunction<S, ?> column) {
-        return this.isNull(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
+        return this.isNotNull(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
     }
 
     /**
@@ -1747,7 +1761,23 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public QueryJoin<M> in(String column, Collection<?> coll) {
-        return super.in(column, coll);
+        return this.in(true, column, coll);
+    }
+
+    /**
+     * 添加 IN 条件，注意字段需要添加表别名
+     *
+     * @param condition 判断条件
+     * @param column    字段
+     * @param coll      集合
+     * @return 返回本实例
+     */
+    @Override
+    public QueryJoin<M> in(boolean condition, String column, Collection<?> coll) {
+        if (coll != null && coll.size() == 1) {
+            return super.eq(condition, column, CollUtil.get(coll, 0));
+        }
+        return super.in(condition, column, coll);
     }
 
     /**
@@ -1796,7 +1826,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public QueryJoin<M> in(String column, Object... values) {
-        return super.in(column, values);
+        return this.in(true, column, values);
     }
 
     /**
@@ -1809,7 +1839,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public QueryJoin<M> in(boolean condition, String column, Object... values) {
-        return super.in(condition, column, values);
+        return this.in(condition, column, Arrays.asList(values));
     }
 
     /**
@@ -1834,7 +1864,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> in(boolean cnd, SFunction<S, ?> column, Object... values) {
-        return this.in(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), values);
+        return this.in(cnd, column, Arrays.asList(values));
     }
 
     /**
@@ -1858,7 +1888,15 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public QueryJoin<M> notIn(String column, Collection<?> coll) {
-        return super.notIn(column, coll);
+        return this.notIn(true, column, coll);
+    }
+
+    @Override
+    public QueryJoin<M> notIn(boolean condition, String column, Collection<?> coll) {
+        if (coll != null && coll.size() == 1) {
+            this.ne(condition, column, CollUtil.get(coll, 0));
+        }
+        return super.notIn(condition, column, coll);
     }
 
     /**
@@ -1875,6 +1913,8 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
 
     /**
      * 添加 NOT IN 条件
+     * <p>
+     * 如果传入的集合元素数量为1，则转成不等于的条件
      *
      * @param cnd    判断条件
      * @param column 字段
@@ -1907,7 +1947,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public QueryJoin<M> notIn(String column, Object... values) {
-        return super.notIn(column, values);
+        return this.notIn(true, column, values);
     }
 
     /**
@@ -1920,7 +1960,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public QueryJoin<M> notIn(boolean condition, String column, Object... values) {
-        return super.notIn(condition, column, values);
+        return this.notIn(condition, column, Arrays.asList(values));
     }
 
     /**
@@ -1945,7 +1985,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notIn(boolean cnd, SFunction<S, ?> column, Object... values) {
-        return this.notIn(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), values);
+        return this.notIn(cnd, column, Arrays.asList(values));
     }
 
     /**
@@ -1991,7 +2031,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     /**
      * 添加 IN SQL语句，注意需要添加表别名
      * ex1：id IN (SELECT id FROM table)
-     * ex2：id IN ("1,2,3,4,5")
+     * ex2：id IN (1,2,3,4,5)
      *
      * @param cnd     判断条件
      * @param column  字段
@@ -2006,7 +2046,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     /**
      * 添加 NOT IN SQL语句，注意需要添加表别名
      * ex1：id NOT IN (SELECT id FROM table)
-     * ex2：id NOT IN ("1,2,3,4,5")
+     * ex2：id NOT IN (1,2,3,4,5)
      *
      * @param column  字段
      * @param inValue 值或SQL语句
@@ -2020,7 +2060,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     /**
      * 添加 NOT IN SQL语句
      * ex1：id NOT IN (SELECT id FROM table)
-     * ex2：id NOT IN ("1,2,3,4,5")
+     * ex2：id NOT IN (1,2,3,4,5)
      *
      * @param column  字段
      * @param inValue 值或SQL语句
@@ -2034,7 +2074,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     /**
      * 添加 NOT IN SQL语句
      * ex1：id NOT IN (SELECT id FROM table)
-     * ex2：id NOT IN ("1,2,3,4,5")
+     * ex2：id NOT IN (1,2,3,4,5)
      *
      * @param cnd     判断条件
      * @param column  字段

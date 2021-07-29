@@ -61,6 +61,15 @@ public interface JoinConfig extends StringPool {
     }
 
     /**
+     * 全局配置是否有逻辑删除字段
+     *
+     * @return true 有逻辑删除，false 无逻辑删除
+     */
+    default boolean hasLogicDelete() {
+        return false;
+    }
+
+    /**
      * 默认实现一个配置
      */
     class DefaultJoinConfig implements JoinConfig {
