@@ -109,7 +109,7 @@ public class ColumnInfo<CI extends Model<CI>> {
      * @return 返回字段属性
      */
     public static <I extends Model<I>> ColumnInfo<I> init(Map<String, JoinTableInfo> tableMap, SFunction<I, ?> func) {
-        return new ColumnInfo<>(tableMap, func, null);
+        return init(tableMap, func, null);
     }
 
     /**

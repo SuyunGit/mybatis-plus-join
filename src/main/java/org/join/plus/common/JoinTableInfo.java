@@ -136,6 +136,10 @@ public class JoinTableInfo implements Serializable {
                 .forEach(c -> {
                     SerializedLambda sl = LambdaUtils.resolve(c);
                     String fieldName = StrUtil.getGeneralField(sl.getImplMethodName());
+                    if (fieldName.equals(this.tableInfo.getKeyProperty())) {
+                        this.selectColumn(this.tableInfo.getKeyColumn(), this.tableInfo.getKeyProperty());
+                        return;
+                    }
                     TableFieldInfo tableFieldInfo = this.tableInfo.getFieldList()
                             .stream()
                             .filter(f -> f.getProperty().equals(fieldName))
@@ -212,7 +216,7 @@ public class JoinTableInfo implements Serializable {
      * @return 返回，为空表示没有逻辑删除
      */
     public TableFieldInfo getLogicDeleteField() {
-        if (!this.getTableInfo().isLogicDelete()) {
+        if (!this.getTableInfo().isWithLogicDelete()) {
             return null;
         }
 
@@ -230,6 +234,10 @@ public class JoinTableInfo implements Serializable {
         if (o instanceof TableInfo) {
             TableInfo tableInfo = (TableInfo) o;
             return this.equals(new JoinTableInfo(tableInfo, SelectType.NONE));
+        }
+        if (o instanceof JoinTableInfo) {
+            JoinTableInfo tableInfo = (JoinTableInfo) o;
+            return this.hashCode() == tableInfo.hashCode();
         }
 
         return false;

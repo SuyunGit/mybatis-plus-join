@@ -528,7 +528,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         final List<Serializable> tenants = new ArrayList<>();
         if (!disableTenant) {
             tenants.addAll(Optional.of(Optional.of(joinConfig)
-                    .orElse(new JoinConfig.DefaultJoinConfig()).tenants())
+                            .orElse(new JoinConfig.DefaultJoinConfig()).tenants())
                     .orElse(new ArrayList<>(0)));
         }
         final String sql = super.getCustomSqlSegment();
@@ -880,7 +880,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      *
      * @param listType 集合实体的类型
      */
-    public <E extends Model<E>> List<E> toEntityList(Class<E> listType) {
+    public <E> List<E> toEntityList(Class<E> listType) {
         if (listType == null) {
             return Collections.emptyList();
         }
@@ -927,7 +927,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      *
      * @param pageType 集合实体的类型
      */
-    public <E extends Model<E>> Page<E> toEntityPage(Class<E> pageType) {
+    public <E> Page<E> toEntityPage(Class<E> pageType) {
         if (pageType == null) {
             return new Page<>();
         }
