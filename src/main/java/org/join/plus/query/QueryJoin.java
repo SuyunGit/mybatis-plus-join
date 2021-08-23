@@ -799,21 +799,21 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     /**
      * 查询并返回
      *
-     * @param oneOnly true最多只会有一个结果，如果出现多个则抛出异常，false可能会出现多个结果，但直接取第一个结果
+     * @param onlyOne true最多只会有一个结果，如果出现多个则抛出异常，false可能会出现多个结果，但直接取第一个结果
      * @return 返回查询的结果
      */
-    public Map<String, Object> oneMap(boolean oneOnly) {
-        return executeCheck().oneMap(this.last(!oneOnly, "LIMIT 0,1"));
+    public Map<String, Object> oneMap(boolean onlyOne) {
+        return executeCheck().oneMap(this.last(!onlyOne, "LIMIT 0,1"));
     }
 
     /**
      * 查询并返回
      *
-     * @param oneOnly true最多只会有一个结果，如果出现多个则抛出异常，false可能会出现多个结果，但直接取第一个结果
+     * @param onlyOne true最多只会有一个结果，如果出现多个则抛出异常，false可能会出现多个结果，但直接取第一个结果
      * @return 返回查询的结果
      */
-    public Map<String, Object> oneMap(JoinMapper<?> superMapper, boolean oneOnly) {
-        return superMapper.oneMap(this.last(!oneOnly, "LIMIT 0,1"));
+    public Map<String, Object> oneMap(JoinMapper<?> superMapper, boolean onlyOne) {
+        return superMapper.oneMap(this.last(!onlyOne, "LIMIT 0,1"));
     }
 
     /**
