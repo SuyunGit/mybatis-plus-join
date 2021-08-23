@@ -22,6 +22,19 @@ import java.util.Map;
 public interface JoinMapper<T> extends BaseMapper<T> {
 
     /**
+     * 查询并返回一个结果，如果查询到多个，则抛出异常
+     * <p>
+     * 需要注意的是，QueryJoin的代理名称用 {@code Constants.WRAPPER}，
+     * 那么如果自定义实现的时候，这个代理名称必须保持统一
+     *
+     * @param wrapper 关联查询的条件构造器
+     * @return 返回
+     */
+    @InterceptorIgnore(tenantLine = "true")
+    @Select("SELECT ${ew.sqlSelect} FROM ${ew.from} ${ew.customSqlSegment}")
+    Map<String, Object> oneMap(@Param(Constants.WRAPPER) QueryJoin<?> wrapper);
+
+    /**
      * 查询并返回
      * <p>
      * 需要注意的是，QueryJoin的代理名称用 {@code Constants.WRAPPER}，

@@ -6,7 +6,7 @@
 
     <groupId>org.join.plus</groupId>
     <artifactId>mybatis-plus-join</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.2-RELEASE</version>
     <packaging>jar</packaging>
 
     <properties>

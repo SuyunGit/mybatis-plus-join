@@ -788,6 +788,35 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     }
 
     /**
+     * 查询一个结果并返回，如果有多个结果，则抛出异常
+     *
+     * @return 返回查询的结果
+     */
+    public Map<String, Object> oneMap() {
+        return oneMap(true);
+    }
+
+    /**
+     * 查询并返回
+     *
+     * @param oneOnly true最多只会有一个结果，如果出现多个则抛出异常，false可能会出现多个结果，但直接取第一个结果
+     * @return 返回查询的结果
+     */
+    public Map<String, Object> oneMap(boolean oneOnly) {
+        return executeCheck().oneMap(this.last(!oneOnly, "LIMIT 0,1"));
+    }
+
+    /**
+     * 查询并返回
+     *
+     * @param oneOnly true最多只会有一个结果，如果出现多个则抛出异常，false可能会出现多个结果，但直接取第一个结果
+     * @return 返回查询的结果
+     */
+    public Map<String, Object> oneMap(JoinMapper<?> superMapper, boolean oneOnly) {
+        return superMapper.oneMap(this.last(!oneOnly, "LIMIT 0,1"));
+    }
+
+    /**
      * 查询并返回
      *
      * @return 返回查询的结果
@@ -856,6 +885,32 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     }
 
     /**
+     * 只查询一个，并按照主表实体返回
+     * 如果查询出多个，则抛出异常
+     *
+     * @return 返回一个主表实体对象
+     */
+    public M one() {
+        return one(true);
+    }
+
+    /**
+     * 只查询一个，并按照主表实体返回
+     *
+     * @param onlyOne true如果查询到多个则会异常，false如果查询到多个，则返回第一个
+     * @return 返回一个主表实体对象
+     */
+    @SuppressWarnings("unchecked")
+    public M one(boolean onlyOne) {
+        Map<String, Object> one = oneMap(onlyOne);
+        if (one == null) {
+            return null;
+        }
+
+        return (M) BeanUtil.mapToBean(one, master.getTableInfo().getEntityType(), true, CopyOptions.create());
+    }
+
+    /**
      * 将结果查询出来之后再填充到每个实体中
      * 直接返回主实体类型对应的列表
      */
@@ -873,6 +928,40 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         this.listResult.forEach(map -> list.add((M) BeanUtil.mapToBean(map, master.getTableInfo().getEntityType(), true, CopyOptions.create())));
 
         return list;
+    }
+
+    /**
+     * 获取一个实体对象的结果，这个实体对象可随意定义
+     * 如果有多个结果，则抛出异常
+     *
+     * @param entityType 实体对象的类型
+     * @param <E>        实体对象的类型
+     * @return 返回一个实体对象
+     */
+    public <E> E oneEntity(Class<E> entityType) {
+        Map<String, Object> one = oneMap();
+        if (one == null) {
+            return null;
+        }
+
+        return BeanUtil.mapToBean(one, entityType, true, CopyOptions.create());
+    }
+
+    /**
+     * 获取一个实体对象的结果，这个实体对象可随意定义
+     *
+     * @param onlyOne    true如果查询到多个则会异常，false如果查询到多个，则返回第一个
+     * @param entityType 实体对象的类型
+     * @param <E>        实体对象的类型
+     * @return 返回一个实体对象
+     */
+    public <E> E oneEntity(boolean onlyOne, Class<E> entityType) {
+        Map<String, Object> one = oneMap(onlyOne);
+        if (one == null) {
+            return null;
+        }
+
+        return BeanUtil.mapToBean(one, entityType, true, CopyOptions.create());
     }
 
     /**
