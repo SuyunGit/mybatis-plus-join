@@ -1039,6 +1039,15 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     }
 
     /**
+     * 统计数量
+     *
+     * @return 返回统计的数量，没有为0
+     */
+    public int count() {
+        return executeCheck().count(this);
+    }
+
+    /**
      * 两个字段相等的条件
      * "column_name_1 = column_name_2"
      *
