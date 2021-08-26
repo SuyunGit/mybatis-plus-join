@@ -16,7 +16,6 @@ import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.Getter;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.join.plus.common.*;
 import org.join.plus.config.JoinConfig;
@@ -203,7 +202,6 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * 分页
      */
     @Getter
-    @Setter
     private Page<?> page;
 
     /**
@@ -233,6 +231,17 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * 临时存放分页的看结果，默认为空
      */
     private Page<Map<String, Object>> pageResult;
+
+    /**
+     * 设置分页条件以进行分页查询
+     *
+     * @param page 分页条件
+     * @return 返回
+     */
+    public QueryJoin<M> setPage(Page<Map<String, Object>> page) {
+        this.page = page;
+        return this;
+    }
 
     /**
      * 隐藏构造函数

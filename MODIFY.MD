@@ -10,3 +10,4 @@
 > 2021年8月26日
 - 1.开放page的设置，为page属性增加setter和getter
 - 2.版本号升级为`1.0.5-RELEASE`
+- 3.修改page的setter函数返回QueryJoin对象，版本号更新为`1.0.6-RELEASE`
