@@ -6,13 +6,14 @@
 
     <groupId>org.join.plus</groupId>
     <artifactId>mybatis-plus-join</artifactId>
-    <version>1.0.4-RELEASE</version>
+    <version>1.0.5-RELEASE</version>
     <packaging>jar</packaging>
 
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
 
+        <maven-source-plugin.version>3.0.1</maven-source-plugin.version>
         <mybatis-plus.version>3.4.0</mybatis-plus.version>
         <projectlombok.version>1.18.20</projectlombok.version>
         <hutool.version>5.7.5</hutool.version>
@@ -75,6 +76,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
+                <version>${maven-source-plugin.version}</version>
                 <executions>
                     <execution>
                         <id>attach-sources</id>

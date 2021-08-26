@@ -16,6 +16,7 @@ import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.join.plus.common.*;
 import org.join.plus.config.JoinConfig;
@@ -201,6 +202,8 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     /**
      * 分页
      */
+    @Getter
+    @Setter
     private Page<?> page;
 
     /**
