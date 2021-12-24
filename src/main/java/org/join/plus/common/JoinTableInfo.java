@@ -1,5 +1,6 @@
 package org.join.plus.common;
 
+import cn.hutool.core.util.ClassUtil;
 import com.baomidou.mybatisplus.core.exceptions.MybatisPlusException;
 import com.baomidou.mybatisplus.core.metadata.TableFieldInfo;
 import com.baomidou.mybatisplus.core.metadata.TableInfo;
@@ -11,6 +12,7 @@ import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.core.toolkit.support.SerializedLambda;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import lombok.Getter;
+import lombok.Setter;
 
 import java.io.Serializable;
 import java.util.Arrays;
@@ -41,7 +43,8 @@ public class JoinTableInfo implements Serializable {
      * 表别名，从注解 TableAlias 中取值
      * 没有则使用类名
      */
-    private final String aliasName;
+    @Setter
+    private String aliasName;
 
     /**
      * 存储指定查询的字段
@@ -71,7 +74,8 @@ public class JoinTableInfo implements Serializable {
         this.isMaster = isMaster;
 
         if (StrUtil.isBlank(entityName)) {
-            this.entityName = StrUtil.lowerFirst(tableInfo.getEntityType().getSimpleName());
+            String claName = ClassUtil.getClassName(tableInfo.getEntityType(), true);
+            this.entityName = cn.hutool.core.util.StrUtil.lowerFirst(claName);
         } else {
             this.entityName = entityName;
         }
@@ -105,7 +109,10 @@ public class JoinTableInfo implements Serializable {
         this.selectType = SelectType.ALL;
         this.tableInfo.getFieldList()
                 .forEach(this::selectColumn);
-        this.selectColumn(this.tableInfo.getKeyColumn(), this.tableInfo.getKeyProperty());
+        String keyColumn = this.tableInfo.getKeyColumn();
+        if (StrUtil.isNotBlank(keyColumn)) {
+            this.selectColumn(this.tableInfo.getKeyColumn(), this.tableInfo.getKeyProperty());
+        }
     }
 
     /**

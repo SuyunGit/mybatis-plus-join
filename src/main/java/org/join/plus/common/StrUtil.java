@@ -21,7 +21,7 @@ public final class StrUtil extends cn.hutool.core.util.StrUtil implements Consta
     public static final String COMMA = StringPool.COMMA;
     public static final String DOT = StringPool.DOT;
     public static final String AS = "AS";
-    public static final String JOIN = "WHERE";
+    public static final String JOIN = "JOIN";
     public static final String AND = StringPool.AND.toUpperCase();
     public final static String SELECT = "SELECT";
     public final static String FROM = "FROM";

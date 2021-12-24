@@ -2,12 +2,14 @@ package org.join.plus.common;
 
 import com.baomidou.mybatisplus.core.exceptions.MybatisPlusException;
 import com.baomidou.mybatisplus.core.metadata.TableFieldInfo;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.toolkit.LambdaUtils;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
 import com.baomidou.mybatisplus.core.toolkit.support.SerializedLambda;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import lombok.Getter;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -48,7 +50,7 @@ public class ColumnInfo<CI extends Model<CI>> {
         }
 
         String ca;
-        if (this.joinTableInfo.getTableInfo().getKeyProperty().equals(fieldName)) {
+        if (fieldName.equals(this.joinTableInfo.getTableInfo().getKeyProperty())) {
             this.columnName = this.joinTableInfo.getTableInfo().getKeyColumn();
             ca = this.joinTableInfo.getTableInfo().getKeyProperty();
         } else {
@@ -69,6 +71,59 @@ public class ColumnInfo<CI extends Model<CI>> {
         }
 
         if (StrUtil.isBlank(alias)) {
+            this.columnAlias = ca;
+        } else {
+            this.columnAlias = alias;
+        }
+    }
+
+    /**
+     * 通过构造器生成属性信息实例
+     *
+     * @param queryTables 已经缓存的关联表Map
+     * @param func        字段属性
+     * @param alias       字段别名
+     */
+    private ColumnInfo(List<JoinTableInfo> queryTables, SFunction<CI, ?> func, String alias) {
+        if (queryTables == null || queryTables.isEmpty()) {
+            throw new MybatisPlusException("获取字段信息错误，没有表信息的缓存");
+        }
+
+        this.func = func;
+        SerializedLambda sl = LambdaUtils.resolve(func);
+        Class<?> cla = sl.getInstantiatedType();
+        JoinTableInfo jti = new JoinTableInfo(TableInfoHelper.getTableInfo(cla));
+        this.joinTableInfo = queryTables
+                .stream()
+                .filter(t -> t.equals(jti))
+                .findFirst()
+                .orElse(null);
+        String fieldName = cn.hutool.core.util.StrUtil.getGeneralField(sl.getImplMethodName());
+        if (this.joinTableInfo == null) {
+            throw new MybatisPlusException(String.format("所查询的字段[%s]所属的表实体[%s]尚未加入关联查询", fieldName, cla.getName()));
+        }
+
+        String ca;
+        if (this.joinTableInfo.getTableInfo().getKeyProperty().equals(fieldName)) {
+            this.columnName = this.joinTableInfo.getTableInfo().getKeyColumn();
+            ca = this.joinTableInfo.getTableInfo().getKeyProperty();
+        } else {
+            TableFieldInfo tfi = this.joinTableInfo
+                    .getTableInfo()
+                    .getFieldList()
+                    .stream()
+                    .filter(f -> f.getProperty().equals(fieldName))
+                    .findFirst()
+                    .orElse(null);
+            if (tfi == null) {
+                throw new MybatisPlusException(String.format("所查询的属性[%s]对应的字段不存在", fieldName));
+            }
+
+            this.columnName = tfi.getColumn();
+            ca = tfi.getProperty();
+        }
+
+        if (cn.hutool.core.util.StrUtil.isEmpty(alias)) {
             this.columnAlias = ca;
         } else {
             this.columnAlias = alias;
@@ -107,6 +162,9 @@ public class ColumnInfo<CI extends Model<CI>> {
      * @param func     字段属性
      * @param <I>      字段属性所属的实体类型
      * @return 返回字段属性
+     *
+     * @since 1.1.0-RELEASE
+     * @deprecated 换一种方式 {@link ColumnInfo#init(List, SFunction)}
      */
     public static <I extends Model<I>> ColumnInfo<I> init(Map<String, JoinTableInfo> tableMap, SFunction<I, ?> func) {
         return init(tableMap, func, null);
@@ -119,8 +177,36 @@ public class ColumnInfo<CI extends Model<CI>> {
      * @param func     字段属性
      * @param <I>      字段属性所属的实体类型
      * @return 返回字段属性
+     *
+     * @since 1.1.0-RELEASE
+     * @deprecated 换一种方式 {@link ColumnInfo#init(List, SFunction, String)}
      */
+    @Deprecated
     public static <I extends Model<I>> ColumnInfo<I> init(Map<String, JoinTableInfo> tableMap, SFunction<I, ?> func, String alias) {
         return new ColumnInfo<>(tableMap, func, alias);
+    }
+
+    /**
+     * 初始化获取字段属性实例
+     *
+     * @param queryTables 缓存
+     * @param func        字段属性
+     * @param <I>         字段属性所属的实体类型
+     * @return 返回字段属性
+     */
+    public static <I extends Model<I>> ColumnInfo<I> init(List<JoinTableInfo> queryTables, SFunction<I, ?> func) {
+        return init(queryTables, func, null);
+    }
+
+    /**
+     * 初始化获取字段属性实例
+     *
+     * @param queryTables 缓存
+     * @param func        字段属性
+     * @param <I>         字段属性所属的实体类型
+     * @return 返回字段属性
+     */
+    public static <I extends Model<I>> ColumnInfo<I> init(List<JoinTableInfo> queryTables, SFunction<I, ?> func, String alias) {
+        return new ColumnInfo<>(queryTables, func, alias);
     }
 }

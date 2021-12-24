@@ -3,6 +3,11 @@ package org.join.plus.query;
 import cn.hutool.core.bean.BeanUtil;
 import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.collection.ListUtil;
+import cn.hutool.core.map.MapUtil;
+import cn.hutool.core.text.StrBuilder;
+import cn.hutool.core.util.NumberUtil;
+import cn.hutool.core.util.ReflectUtil;
 import com.baomidou.mybatisplus.core.conditions.AbstractWrapper;
 import com.baomidou.mybatisplus.core.conditions.SharedString;
 import com.baomidou.mybatisplus.core.conditions.query.Query;
@@ -13,6 +18,7 @@ import com.baomidou.mybatisplus.core.metadata.TableInfo;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.baomidou.mybatisplus.core.toolkit.*;
 import com.baomidou.mybatisplus.core.toolkit.support.SFunction;
+import com.baomidou.mybatisplus.core.toolkit.support.SerializedLambda;
 import com.baomidou.mybatisplus.extension.activerecord.Model;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import lombok.Getter;
@@ -168,13 +174,16 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         implements Query<QueryJoin<M>, M, String>, Serializable {
     private final static long serialVersionUID = 1L;
 
+    private final static String UNION = "UNION";
+    private final static String UNION_ALL = UNION.concat(StrUtil.SPACE).concat("ALL");
+
     /**
      * 已经加入查询的表
      * key：类名，全类名
      * value：表信息
      */
     @Getter
-    private final Map<String, JoinTableInfo> tableMap = CollectionUtils.newHashMap();
+    private final List<JoinTableInfo> queryTables = ListUtil.list(true);
 
     /**
      * 缓存所有已经加入查询的字段
@@ -197,6 +206,20 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * From的语句，其中包含关联语句和On语句
      */
     private final StringBuilder sqlFrom = new StringBuilder();
+
+    /**
+     * 建议使用少于5层UNION，包括UNION ALL
+     */
+    private final static int UNION_LEVEL = 5;
+    /**
+     * 联合查询 UNION 缓存
+     */
+    private final List<QueryJoin<?>> unions = new ArrayList<>(UNION_LEVEL);
+
+    /**
+     * 联合查询 UNION ALL 缓存
+     */
+    private final List<QueryJoin<?>> unionAlls = new ArrayList<>(UNION_LEVEL);
 
     /**
      * 分页
@@ -244,6 +267,18 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     }
 
     /**
+     * 设置分页条件以进行分页查询
+     *
+     * @param pageIndex 当前页码
+     * @param pageSize  页容量
+     * @return 返回
+     */
+    public QueryJoin<M> setPage(int pageIndex, int pageSize) {
+        this.page = new Page<>(pageIndex, pageSize);
+        return this;
+    }
+
+    /**
      * 隐藏构造函数
      *
      * @param master 主表
@@ -251,6 +286,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     private QueryJoin(JoinTableInfo master, JoinConfig joinConfig) {
         this.master = master;
         this.joinConfig = joinConfig;
+        this.addTable(master, null);
         super.initNeed();
         if (joinConfig != null) {
             this.disableTenant = joinConfig.tenantClass() == null || StrUtil.isBlank(joinConfig.tenantColumn());
@@ -264,8 +300,10 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param entityClass 本不应该需要的
      */
     private QueryJoin(JoinTableInfo master, JoinConfig joinConfig, M entity, Class<M> entityClass, AtomicInteger paramNameSeq,
-                      Map<String, Object> paramNameValuePairs, MergeSegments mergeSegments,
-                      SharedString lastSql, SharedString sqlComment, SharedString sqlFirst) {
+                      Map<String, Object> paramNameValuePairs, MergeSegments mergeSegments, SharedString lastSql,
+                      SharedString sqlComment, SharedString sqlFirst, List<JoinTableInfo> queryTables,
+                      Map<String, String> selectOthers, StringBuilder sqlFrom, List<QueryJoin<?>> unions,
+                      List<QueryJoin<?>> unionAlls, boolean disableTenant, boolean enableDistinct, boolean disableLogicDelete) {
         super.setEntity(entity);
         super.setEntityClass(entityClass);
         this.paramNameSeq = paramNameSeq;
@@ -276,6 +314,14 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         this.sqlFirst = sqlFirst;
         this.master = master;
         this.joinConfig = joinConfig;
+        this.queryTables.addAll(queryTables);
+        this.selectOthers.putAll(selectOthers);
+        this.sqlFrom.append(sqlFrom);
+        this.unions.addAll(unions);
+        this.unionAlls.addAll(unionAlls);
+        this.disableTenant = disableTenant;
+        this.enableDistinct = enableDistinct;
+        this.disableLogicDelete = disableLogicDelete;
         super.initNeed();
         if (joinConfig != null) {
             this.disableTenant = joinConfig.tenantClass() == null || StrUtil.isBlank(joinConfig.tenantColumn());
@@ -320,7 +366,6 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
 
         JoinTableInfo et = new JoinTableInfo(master, true, SelectType.ALL);
         QueryJoin<M> qj = new QueryJoin<>(et, joinConfig);
-        qj.tableMap.put(masterTable.getName(), et);
         /// "master_table AS tableAlias"
         qj.sqlFrom
                 .append(master.getTableName())
@@ -330,6 +375,19 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
                 .append(et.getAliasName());
         // 主表默认查询全部字段
         return qj;
+    }
+
+    private void addTable(JoinTableInfo et, Integer index) {
+        String suffix = index == null ? "1" : (++index).toString();
+        String aliasName = et.getAliasName();
+        if (this.queryTables.contains(et)) {
+            String nextName = cn.hutool.core.util.StrUtil.sub(aliasName, 0, index == null ? aliasName.length() : aliasName.length() - 1).concat(suffix);
+            et.setAliasName(nextName);
+            addTable(et, index);
+            return;
+        }
+
+        this.queryTables.add(et);
     }
 
     /**
@@ -404,11 +462,17 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     private final <E extends Model<E>> QueryJoin<M> selectAny(SelectType selectType, Class<E>... es) {
         Consumer<JoinTableInfo> consumer = selectType == SelectType.ALL ? JoinTableInfo::selectAll : JoinTableInfo::selectNone;
         if (ArrayUtils.isEmpty(es)) {
-            this.tableMap.values()
-                    .forEach(consumer);
+            this.queryTables.forEach(consumer);
         } else {
             Arrays.stream(es)
-                    .map(e -> this.tableMap.get(e.getName()))
+                    .map(e -> {
+                        JoinTableInfo jti = new JoinTableInfo(TableInfoHelper.getTableInfo(e));
+                        return this.queryTables
+                                .stream()
+                                .filter(t -> t.equals(jti))
+                                .findFirst()
+                                .orElse(null);
+                    })
                     .filter(Objects::nonNull)
                     .forEach(consumer);
         }
@@ -421,7 +485,11 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param get 字段的get函数
      * @param <S> 字段的类
      * @return 返回本实例
+     *
+     * @since 1.1.0-RELEASE
+     * @deprecated 直接使用 {@link QueryJoin#selects(SFunction[])} ()}，下个大版本删除
      */
+    @Deprecated
     public <S extends Model<S>> QueryJoin<M> select(SFunction<S, ?> get) {
         return select(get, null);
     }
@@ -433,6 +501,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param gets 多个字段的get函数
      * @param <S>  字段的类
      * @return 返回本实例
+     *
      * @see QueryJoin#select(SFunction)
      */
     @SafeVarargs
@@ -440,7 +509,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         // 不管几个参数，所属的类型都是相同的，那就先解析一个
         if (ArrayUtils.isNotEmpty(gets)) {
             ColumnInfo
-                    .init(this.tableMap, gets[0])
+                    .init(this.queryTables, gets[0])
                     .getJoinTableInfo()
                     .selectSome(gets);
         }
@@ -456,7 +525,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> select(SFunction<S, ?> get, String alias) {
-        ColumnInfo<S> ci = ColumnInfo.init(this.tableMap, get, alias);
+        ColumnInfo<S> ci = ColumnInfo.init(this.queryTables, get, alias);
 
         if (StrUtil.isBlank(alias)) {
             ci.getJoinTableInfo().selectSome(ci.getColumnName(), ci.getColumnAlias());
@@ -476,7 +545,9 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     @Override
     protected QueryJoin<M> instance() {
         return new QueryJoin<>(master, joinConfig, getEntity(), getEntityClass(), paramNameSeq, paramNameValuePairs,
-                new MergeSegments(), SharedString.emptyString(), SharedString.emptyString(), SharedString.emptyString());
+                new MergeSegments(), SharedString.emptyString(), SharedString.emptyString(), SharedString.emptyString(),
+                this.queryTables, this.selectOthers, this.sqlFrom, this.unions, this.unionAlls, this.disableTenant,
+                this.enableDistinct, this.disableLogicDelete);
     }
 
     /**
@@ -504,16 +575,14 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
             });
         }
 
-        if (!this.tableMap.isEmpty()) {
-            this.tableMap.values()
-                    .forEach(jti -> {
-                        String selectString = jti.selectString();
-                        if (StrUtil.isNotBlank(selectString)) {
-                            sqlSelect.append(selectString)
-                                    .append(StrUtil.COMMA);
-                        }
-                    });
-        }
+        this.queryTables
+                .forEach(jti -> {
+                    String selectString = jti.selectString();
+                    if (cn.hutool.core.util.StrUtil.isNotBlank(selectString)) {
+                        sqlSelect.append(selectString)
+                                .append(StrUtil.COMMA);
+                    }
+                });
 
         if (sqlSelect.toString().endsWith(StrUtil.COMMA)) {
             int length = sqlSelect.length();
@@ -533,7 +602,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      */
     @Override
     public String getCustomSqlSegment() {
-        if (this.tableMap.isEmpty() || (disableLogicDelete && disableTenant)) {
+        if (this.queryTables.isEmpty() || (disableLogicDelete && disableTenant)) {
             return super.getCustomSqlSegment();
         }
 
@@ -544,7 +613,8 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
                     .orElse(new ArrayList<>(0)));
         }
         final String sql = super.getCustomSqlSegment();
-        this.tableMap.values().forEach(table -> {
+
+        this.queryTables.forEach(table -> {
             if (!disableTenant) {
                 Class<?> superClass = table.getTableInfo()
                         .getEntityType()
@@ -566,10 +636,20 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
                     String columnStr = table.getAliasName()
                             .concat(StrUtil.DOT)
                             .concat(logicDelete.getColumn());
-                    eq(!sql.contains(columnStr), columnStr, StrUtil.tryToNumber(logicDelete.getLogicNotDeleteValue()));
+                    String ld = logicDelete.getLogicNotDeleteValue();
+                    if (NumberUtil.isNumber(ld)) {
+                        eq(!sql.contains(columnStr), columnStr, NumberUtil.parseNumber(ld));
+                    } else {
+                        eq(!sql.contains(columnStr), columnStr, ld);
+                    }
                 }
             }
         });
+
+        StrBuilder lastSql = cn.hutool.core.util.StrUtil.strBuilder();
+        this.unions.forEach(union -> lastSql.append(StrUtil.SPACE).append(UNION.concat(StrUtil.SPACE).concat(union.getFullSql())));
+        this.unionAlls.forEach(union -> lastSql.append(StrUtil.SPACE).append(UNION_ALL.concat(StrUtil.SPACE).concat(union.getFullSql())));
+        last(cn.hutool.core.util.StrUtil.replace(lastSql, "  ", " "));
         return super.getCustomSqlSegment();
     }
 
@@ -617,6 +697,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      *
      * @param columns 需要查询的字段
      * @return 返回本实例
+     *
      * @see QueryJoin#select(SFunction)
      * @see QueryJoin#select(SFunction, String)
      */
@@ -644,6 +725,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param entityClass 主实体
      * @param predicate   查询字段处理器
      * @return 返回本实例
+     *
      * @throws UnsupportedOperationException 永久抛出此异常，此函数暂未实现
      */
     @Override
@@ -665,8 +747,8 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         this.listResult = null;
         this.pageResult = null;
         this.sqlFrom.setLength(0);
-        this.tableMap.clear();
-        this.tableMap.put(master.getTableInfo().getEntityType().getName(), master);
+        this.queryTables.clear();
+        this.addTable(master, null);
     }
 
     /**
@@ -749,7 +831,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         }
 
         JoinTableInfo et = new JoinTableInfo(joinInfo);
-        this.tableMap.put(tableEntity.getName(), et);
+        this.addTable(et, null);
 
         if (joinType == JoinType.WHERE) {
             /// ",table_name AS aliasName"
@@ -977,6 +1059,36 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     }
 
     /**
+     * 获取一个值的结果，这个值类型可随意定义
+     * 如果有多个结果，则抛出异常
+     *
+     * @param valueType 值的类型
+     * @param <E>       值的类型
+     * @return 返回一个实体对象
+     */
+    public <E> E oneValue(Class<E> valueType) {
+        return oneValue(true, valueType);
+    }
+
+    /**
+     * 获取一个值的结果，这个值类型可随意定义
+     *
+     * @param onlyOne   true如果查询到多个则会异常，false如果查询到多个，则返回第一个
+     * @param valueType 值的类型
+     * @param <E>       值的类型
+     * @return 返回一个实体对象
+     */
+    public <E> E oneValue(boolean onlyOne, Class<E> valueType) {
+        Map<String, Object> one = oneMap(onlyOne);
+        if (one == null) {
+            return null;
+        }
+
+        String key = CollUtil.getFirst(one.keySet());
+        return MapUtil.get(one, key, valueType);
+    }
+
+    /**
      * 将结果查询出来之后再填充到实体中
      *
      * @param listType 集合实体的类型
@@ -1051,12 +1163,95 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
     }
 
     /**
+     * 将结果查询出来之后再填充到每个实体中
+     * 直接返回主实体类型对应的列表
+     */
+    @SuppressWarnings("unchecked")
+    public <E, B> List<B> entityValueList(SFunction<E, B> entityColumn) {
+        if (this.listResult == null) {
+            this.listResult = listMap();
+        }
+
+        if (this.listResult.isEmpty()) {
+            return ListUtil.empty();
+        }
+
+        SerializedLambda sl = LambdaUtils.resolve(entityColumn);
+        String fieldName = cn.hutool.core.util.StrUtil.getGeneralField(sl.getImplMethodName());
+        return (List<B>) toValueList(ReflectUtil.getMethod(sl.getImplClass(), sl.getImplMethodName()).getReturnType(), fieldName);
+    }
+
+    /**
+     * 将结果查询出来之后再填充到实体中
+     *
+     * @param valueType 集合元素的类型
+     */
+    public <E> List<E> toValueList(Class<E> valueType) {
+        if (valueType == null) {
+            return ListUtil.empty();
+        }
+
+        if (this.listResult == null) {
+            this.listResult = listMap();
+        }
+
+        if (this.listResult.isEmpty()) {
+            return ListUtil.empty();
+        }
+
+        Map<String, Object> oneMap = CollUtil.getFirst(this.listResult);
+        if (CollUtil.isNotEmpty(oneMap)) {
+            String key = CollUtil.getFirst(oneMap.keySet());
+            return toValueList(valueType, key);
+        }
+
+        return ListUtil.empty();
+    }
+
+    /**
+     * 将结果查询出来之后再填充到实体中
+     *
+     * @param valueType 集合元素的类型
+     * @param column    需要转换的字段名称，会自动转小写
+     */
+    public <E> List<E> toValueList(Class<E> valueType, String column) {
+        if (valueType == null) {
+            return ListUtil.empty();
+        }
+
+        if (this.listResult == null) {
+            this.listResult = listMap();
+        }
+
+        if (this.listResult.isEmpty()) {
+            return ListUtil.empty();
+        }
+
+        List<E> list = new ArrayList<>(this.listResult.size());
+        // column.toLowerCase()  MP查询后返回的map中所有的key都是小写的，所以这里转小写，可能是有问题的
+        this.listResult.forEach(map -> list.add(MapUtil.get(map, column, valueType)));
+
+        return list;
+    }
+
+    /**
      * 统计数量
      *
      * @return 返回统计的数量，没有为0
      */
     public int count() {
         return executeCheck().count(this);
+    }
+
+    /**
+     * 判断查询结果是否存在
+     *
+     * @return true存在，false不存在
+     *
+     * @since 1.1.0-RELEASE
+     */
+    public boolean contains() {
+        return count() > 0;
     }
 
     /**
@@ -1070,12 +1265,54 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <L extends Model<L>, R extends Model<R>> QueryJoin<M> eq(SFunction<L, ?> left, SFunction<R, ?> right) {
-        ColumnInfo<L> ciLeft = ColumnInfo.init(this.tableMap, left);
-        ColumnInfo<R> ciRight = ColumnInfo.init(this.tableMap, right);
+        return eqAs(left, null, right, null);
+    }
+
+    /**
+     * 两个字段相等的条件
+     * "column_name_1 = column_name_2"
+     *
+     * @param left  左边字段
+     * @param right 右边字段
+     * @param <L>   左边字段的类型
+     * @param <B>   右边字段的类型
+     * @return 返回本实例
+     */
+    public <L extends Model<L>, B extends Model<B>> QueryJoin<M> eqAs(SFunction<L, ?> left, String leftAs, SFunction<B, ?> right) {
+        return eqAs(left, leftAs, right, null);
+    }
+
+    /**
+     * 两个字段相等的条件
+     * "column_name_1 = column_name_2"
+     *
+     * @param left  左边字段
+     * @param right 右边字段
+     * @param <L>   左边字段的类型
+     * @param <B>   右边字段的类型
+     * @return 返回本实例
+     */
+    public <L extends Model<L>, B extends Model<B>> QueryJoin<M> eqAs(SFunction<L, ?> left, SFunction<B, ?> right, String rightAs) {
+        return eqAs(left, null, right, rightAs);
+    }
+
+    /**
+     * 两个字段相等的条件
+     * "column_name_1 = column_name_2"
+     *
+     * @param left  左边字段
+     * @param right 右边字段
+     * @param <L>   左边字段的类型
+     * @param <B>   右边字段的类型
+     * @return 返回本实例
+     */
+    public <L extends Model<L>, B extends Model<B>> QueryJoin<M> eqAs(SFunction<L, ?> left, String leftAs, SFunction<B, ?> right, String rightAs) {
+        ColumnInfo<L> ciLeft = ColumnInfo.init(this.queryTables, left, leftAs);
+        ColumnInfo<B> ciRight = ColumnInfo.init(this.queryTables, right, rightAs);
         apply(ciLeft
                 .cndColumnStr()
                 .concat(StrUtil.SPACE)
-                .concat(StrUtil.EQ)
+                .concat(Constants.EQUALS)
                 .concat(StrUtil.SPACE)
                 .concat(ciRight.cndColumnStr()));
         return typedThis;
@@ -1088,6 +1325,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param params 相等的条件和参数
      * @param <V>    值类型
      * @return 返回本实例
+     *
      * @see QueryJoin#allEqFun(Map)
      */
     @Override
@@ -1103,6 +1341,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param null2IsNull 如果字段对应的值为null，则判断此字段为NULL
      * @param <V>         值类型
      * @return 返回本实例
+     *
      * @see QueryJoin#allEqFun(Map, boolean)
      */
     @Override
@@ -1118,6 +1357,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param params 相等的条件和参数
      * @param <V>    值类型
      * @return 返回本实例
+     *
      * @see QueryJoin#allEqFun(BiPredicate, Map)
      */
     @Override
@@ -1134,6 +1374,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param null2IsNull 如果字段对应的值为null，则判断此字段为NULL
      * @param <V>         值类型
      * @return 返回本实例
+     *
      * @see QueryJoin#allEqFun(BiPredicate, Map, boolean)
      */
     @Override
@@ -1169,7 +1410,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         Map<String, Object> maps = new HashMap<>(params.size());
         for (Map.Entry<SFunction<S, ?>, ?> entry : params.entrySet()) {
             SFunction<S, ?> func = entry.getKey();
-            ColumnInfo<S> ci = ColumnInfo.init(tableMap, func);
+            ColumnInfo<S> ci = ColumnInfo.init(queryTables, func);
             maps.put(ci.getJoinTableInfo().getAliasName().concat(StrUtil.DOT).concat(ci.getColumnName()), entry.getValue());
         }
         return this.allEq(maps, null2IsNull);
@@ -1210,7 +1451,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         Map<String, V> maps = new HashMap<>(params.size());
         for (Map.Entry<SFunction<S, ?>, V> entry : params.entrySet()) {
             SFunction<S, ?> func = entry.getKey();
-            ColumnInfo<S> ci = ColumnInfo.init(tableMap, func);
+            ColumnInfo<S> ci = ColumnInfo.init(queryTables, func);
             maps.put(ci.getJoinTableInfo().getAliasName().concat(StrUtil.DOT).concat(ci.getColumnName()), entry.getValue());
         }
         return this.allEq(filter, maps, null2IsNull);
@@ -1222,6 +1463,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @param column 字段
      * @param val    值
      * @return 返回本实例
+     *
      * @see QueryJoin#eq(SFunction, Object)
      */
     @Override
@@ -1251,7 +1493,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> eq(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.eq(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.eq(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1301,7 +1543,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> ne(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.ne(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.ne(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1351,7 +1593,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> gt(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.gt(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.gt(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1401,7 +1643,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> ge(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.ge(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.ge(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1451,7 +1693,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> lt(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.lt(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.lt(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1501,7 +1743,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> le(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.le(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.le(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1554,7 +1796,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> between(boolean cnd, SFunction<S, ?> column, Object val1, Object val2) {
-        return this.between(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val1, val2);
+        return this.between(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val1, val2);
     }
 
     /**
@@ -1591,7 +1833,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notBetween(boolean cnd, SFunction<S, ?> column, Object val1, Object val2) {
-        return super.notBetween(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val1, val2);
+        return super.notBetween(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val1, val2);
     }
 
     /**
@@ -1615,7 +1857,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> like(SFunction<S, ?> column, Object val) {
-        return this.like(ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.like(ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1628,7 +1870,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> like(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.le(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.like(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1641,7 +1883,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeIfNotEmpty(SFunction<S, ?> column, Object val) {
-        return this.like(ObjectUtils.isNotEmpty(val), ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.like(ObjectUtils.isNotEmpty(val), ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1678,7 +1920,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notLike(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.notLike(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.notLike(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1728,7 +1970,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeLeft(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.likeLeft(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.likeLeft(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1778,7 +2020,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> likeRight(boolean cnd, SFunction<S, ?> column, Object val) {
-        return this.likeRight(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), val);
+        return this.likeRight(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), val);
     }
 
     /**
@@ -1825,7 +2067,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> isNull(boolean cnd, SFunction<S, ?> column) {
-        return this.isNull(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
+        return this.isNull(cnd, ColumnInfo.init(queryTables, column).cndColumnStr());
     }
 
     /**
@@ -1859,7 +2101,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> isNotNull(boolean cnd, SFunction<S, ?> column) {
-        return this.isNotNull(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
+        return this.isNotNull(cnd, ColumnInfo.init(queryTables, column).cndColumnStr());
     }
 
     /**
@@ -1912,7 +2154,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> in(boolean cnd, SFunction<S, ?> column, Collection<?> coll) {
-        return this.in(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), coll);
+        return this.in(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), coll);
     }
 
     /**
@@ -2033,7 +2275,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notIn(boolean cnd, SFunction<S, ?> column, Collection<?> coll) {
-        return this.notIn(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), coll);
+        return this.notIn(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), coll);
     }
 
     /**
@@ -2150,7 +2392,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> inSql(boolean cnd, SFunction<S, ?> column, String inValue) {
-        return this.inSql(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), inValue);
+        return this.inSql(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), inValue);
     }
 
     /**
@@ -2193,7 +2435,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> notInSql(boolean cnd, SFunction<S, ?> column, String inValue) {
-        return this.notInSql(cnd, ColumnInfo.init(tableMap, column).cndColumnStr(), inValue);
+        return this.notInSql(cnd, ColumnInfo.init(queryTables, column).cndColumnStr(), inValue);
     }
 
     /**
@@ -2227,7 +2469,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> groupBy(boolean cnd, SFunction<S, ?> column) {
-        return this.groupBy(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
+        return this.groupBy(cnd, ColumnInfo.init(queryTables, column).cndColumnStr());
     }
 
     /**
@@ -2297,7 +2539,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> orderByAsc(boolean cnd, SFunction<S, ?> column) {
-        return super.orderByAsc(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
+        return super.orderByAsc(cnd, ColumnInfo.init(queryTables, column).cndColumnStr());
     }
 
     /**
@@ -2378,7 +2620,7 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
      * @return 返回本实例
      */
     public <S extends Model<S>> QueryJoin<M> orderByDesc(boolean cnd, SFunction<S, ?> column) {
-        return super.orderByDesc(cnd, ColumnInfo.init(tableMap, column).cndColumnStr());
+        return super.orderByDesc(cnd, ColumnInfo.init(queryTables, column).cndColumnStr());
     }
 
     /**
@@ -2446,10 +2688,38 @@ public class QueryJoin<M extends Model<M>> extends AbstractWrapper<M, String, Qu
         if (ArrayUtils.isNotEmpty(columns)) {
             String[] columnsStr = new String[columns.length];
             for (int i = 0; i < columns.length; i++) {
-                columnsStr[i] = ColumnInfo.init(tableMap, columns[i]).cndColumnStr();
+                columnsStr[i] = ColumnInfo.init(queryTables, columns[i]).cndColumnStr();
             }
             return columnsStr;
         }
         return new String[0];
+    }
+
+    /**
+     * 联合查询 UNION
+     *
+     * @param tableEntity 需要联合查询的多表查询的主表类型
+     * @param <U>         类型
+     * @return 返回多表查询对象
+     */
+    public <U extends Model<U>> QueryJoin<M> UNION(Class<U> tableEntity, Consumer<QueryJoin<U>> queryJoinConsumer) {
+        QueryJoin<U> queryJoin = QueryJoin.create(tableEntity, this.joinConfig);
+        queryJoinConsumer.accept(queryJoin);
+        this.unions.add(queryJoin);
+        return this;
+    }
+
+    /**
+     * 联合查询 UNION ALL
+     *
+     * @param tableEntity 需要联合查询的多表查询的主表类型
+     * @param <U>         类型
+     * @return 返回多表查询对象
+     */
+    public <U extends Model<U>> QueryJoin<M> UNION_ALL(Class<U> tableEntity, Consumer<QueryJoin<U>> queryJoinConsumer) {
+        QueryJoin<U> queryJoin = QueryJoin.create(tableEntity, this.joinConfig);
+        queryJoinConsumer.accept(queryJoin);
+        this.unionAlls.add(queryJoin);
+        return this;
     }
 }

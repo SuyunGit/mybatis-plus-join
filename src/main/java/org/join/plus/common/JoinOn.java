@@ -31,6 +31,42 @@ public class JoinOn<M extends Model<M>, J extends Model<J>> {
      * @return 返回QueryJoin实例
      */
     public <P extends Model<P>> QueryJoin<M> on(SFunction<P, ?> left, SFunction<J, ?> right) {
+        return on(left, null, right, null);
+    }
+
+    /**
+     * 条件关联，此处只能作为关系关联，无法添加查询条件
+     *
+     * @param left  左属性，可任意选择已经添加关联的实体字段
+     * @param right 右属性，只能选择此次关联实体的字段
+     * @param <P>   左属性实体类型
+     * @return 返回QueryJoin实例
+     */
+    public <P extends Model<P>> QueryJoin<M> on(SFunction<P, ?> left, String leftAs, SFunction<J, ?> right) {
+        return on(left, leftAs, right, null);
+    }
+
+    /**
+     * 条件关联，此处只能作为关系关联，无法添加查询条件
+     *
+     * @param left  左属性，可任意选择已经添加关联的实体字段
+     * @param right 右属性，只能选择此次关联实体的字段
+     * @param <P>   左属性实体类型
+     * @return 返回QueryJoin实例
+     */
+    public <P extends Model<P>> QueryJoin<M> on(SFunction<P, ?> left, SFunction<J, ?> right, String rightAs) {
+        return on(left, null, right, rightAs);
+    }
+
+    /**
+     * 条件关联，此处只能作为关系关联，无法添加查询条件
+     *
+     * @param left  左属性，可任意选择已经添加关联的实体字段
+     * @param right 右属性，只能选择此次关联实体的字段
+     * @param <P>   左属性实体类型
+     * @return 返回QueryJoin实例
+     */
+    public <P extends Model<P>> QueryJoin<M> on(SFunction<P, ?> left, String leftAs, SFunction<J, ?> right, String rightAs) {
         if (left == null && right == null) {
             return queryJoin;
         }
@@ -40,11 +76,11 @@ public class JoinOn<M extends Model<M>, J extends Model<J>> {
         }
 
         if (this.joinType == JoinType.WHERE) {
-            return queryJoin.eq(left, right);
+            return queryJoin.eqAs(left, leftAs, right, rightAs);
         }
 
-        ColumnInfo<P> ciRight = ColumnInfo.init(queryJoin.getTableMap(), left);
-        ColumnInfo<J> ciLeft = ColumnInfo.init(queryJoin.getTableMap(), right);
+        ColumnInfo<P> ciRight = ColumnInfo.init(queryJoin.getQueryTables(), left, leftAs);
+        ColumnInfo<J> ciLeft = ColumnInfo.init(queryJoin.getQueryTables(), right, rightAs);
 
         /// " ON leftTableAlias.column_name = rightTableAlias.column_name"
         this.fromSql
